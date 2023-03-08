@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: kid-model
-Version: 0.0
-Summary: Mattis-Bardeen model of KID response and noise
-Home-page: https://github.com/ekane123/kid_model
-Author: Elijah Kane
-Author-email: ekane@caltech.edu
-Requires-Python: >3.8
