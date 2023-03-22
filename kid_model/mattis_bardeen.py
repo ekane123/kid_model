@@ -17,6 +17,7 @@ def get_S2(T, Tc, omega):
     Delta0 = 1.76*k_B*Tc
     a = hbar*omega/(2*k_B*T)
     S2 = 1 + np.sqrt(2*Delta0/(np.pi*k_B*T)) * np.exp(-a) * np.i0(a)
+    return S2
 
 def get_nqp_thermal(T, Tc, N0):
     Delta0 = 1.76*k_B*Tc
@@ -34,16 +35,23 @@ def get_Teff(nqp_total, T_actual, Tc, N0):
     Teff = max(T_actual, Tc/10.0)
     converged = False
 
+    last2 = [Teff,Teff]
     i = 0
     while not converged:
-        if np.abs(error) < 1e-3 or i>10:
+        if np.abs(error) < 1e-4 or i>100:
             converged = True
         else:
             dTeff = Teff/50
             derivative = (get_nqp_thermal(Teff+dTeff/2,Tc,N0) \
-                        - get_nqp_thermal(Teff-dTeff/2,Tc,,N0)) \
+                        - get_nqp_thermal(Teff-dTeff/2,Tc,N0)) \
                          / dTeff
-            Teff = max(0, Teff + (nqp_total - nth) / derivative)
+            Teff = Teff + (nqp_total - nth) / derivative
+            if Teff <= 0:
+                Teff = (last2[0]+last2[1])/2
+                last2[1] = Teff
+            else:
+                last2.append(Teff)
+                last2 = last2[1:]
             nth = get_nqp_thermal(Teff,Tc,N0)
             error = np.abs((nth - nqp_total)/nqp_total)
         i+=1
