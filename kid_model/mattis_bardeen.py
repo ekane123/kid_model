@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.special import kn
+from scipy.integrate import trapz
 import math
 
 # SI units
