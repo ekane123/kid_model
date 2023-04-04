@@ -9,7 +9,7 @@ mu_0 = 1.257e-6
 
 def fFD(E,T):
     '''Fermi-Dirac Distribution'''
-    return 1/(1+np.exp(E/(k*T)))
+    return 1/(1+np.exp(E/(k_B*T)))
 
 def get_S1(T, Tc, omega):
     '''
