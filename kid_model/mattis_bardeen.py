@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.special import kn
+import math
 
 # SI units
 k_B = 1.381e-23
