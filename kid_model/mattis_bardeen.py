@@ -1,9 +1,8 @@
 import numpy as np
 from scipy.special import kn
-from scipy.integrate import trapz
-import math
+from scipy.integrate import quad
 
-# SI units
+# work in SI units
 k_B = 1.381e-23
 hbar = 1.055e-34
 eV = 1.602e-19
@@ -33,48 +32,85 @@ def get_S2(T, Tc, omega):
     S2 = 1 + np.sqrt(2*Delta0/(np.pi*k_B*T)) * np.exp(-a) * np.i0(a)
     return S2
 
-def get_nqp_thermal(T, Tc, N0):
+def get_nth(T, Tc, N0, exact_nth=False, exact_delta=False, omega_D=9.66e13):
     '''
-    T<<Tc approximation for the thermal quasiparticle density.
-    '''
-    Delta0 = 1.76*k_B*Tc
-    nqp = 2*N0*np.sqrt(2*np.pi*k_B*T*Delta0)*np.exp(-Delta0/(k_B*T))
-    return nqp
+    Calculates the thermal quasiparticle density.
 
-def get_nqp_thermal_exact(T, Tc, N0):
-    '''
-    Calculates the exact integral for nqp_thermal. There is still a
-    low-temperature approximation being made here, in that we use the
-    zero-temperature value of Delta. This should be nearly exact at
-    temperatures T<Tc/2, if I remember correctly.
+    If exact_nth==True, uses the BCS integral for thermal quasiparticle
+    density, otherwise uses the T<<Tc approximation.
+
+    If exact_delta==True, also uses the exact expression for Delta(T) when
+    calculating the BCS integral. Otherwise, uses the zero-temperature
+    value of Delta.
+
+    Note that a change of variables has been used to remove the singularity
+    present in the BCS density of states, in order to allow for easy
+    numerical integration.
     '''
     if T == 0:
-        nqp_thermal = 0.
+        nth = 0.
+    elif exact_nth:
+        if exact_delta:
+            Delta = get_Delta(T, Tc, omega_D)
+        else:
+            Delta = 1.76*k_B*Tc
+        def integrand(E):
+            return 1/(1+np.exp(np.sqrt(Delta**2+E**2)/(k_B*T)))
+        # The upper bound of 10*Delta is arbitrary but it works
+        # across virtually the entire range of T=[0,Tc].
+        integral, abserr = quad(integrand,0,10*Delta)
+        nth = 4*N0*integral
     else:
         Delta0 = 1.76*k_B*Tc
-        def integrand(E):
-            BCS_DOS = E/np.sqrt(E**2-Delta0**2)
-            return fFD(E,T)*BCS_DOS
-        # The upper bound of 5*Delta0 is arbirtrary but seems to
-        # be high enough for all practical purposes.
-        nqp_thermal = 4*N0*trapz2(integrand,(Delta0,5*Delta0))
-    return nqp_thermal
+        nth = 2*N0*np.sqrt(2*np.pi*k_B*T*Delta0)*np.exp(-Delta0/(k_B*T))
+    return nth
 
-def get_Teff(nqp_total, T_actual, Tc, N0, exact=False):
+def get_Delta(T, Tc, omega_D=9.66e13):
+    '''
+    Returns the superconducting energy gap at temperature T
+    given the critical temperature Tc and Debye frequency omega_D.
+    '''
+    Delta_0 = 1.76*k_B*Tc
+    if T==0:
+        return Delta_0
+
+    Beta = 1/(k_B*T)
+    Delta_T = Delta_0
+    A = np.arcsinh(hbar*omega_D/Delta_0)
+
+    def integrand(E,Delta_T):
+        return np.tanh(Beta*np.sqrt(E**2 + Delta_T**2)/2)/(2*np.sqrt(E**2 + Delta_T**2))
+
+    integral = quad(lambda E: integrand(E, Delta_T),-hbar*omega_D,hbar*omega_D)[0] / A
+    error = integral - 1
+    converged = False
+
+    ii = 0
+    while not converged:
+        if np.abs(error) < 1e-8 or ii>10:
+            converged = True
+        else:
+            dDelta_T = Delta_T/100
+            derivative = (quad(lambda E: integrand(E, Delta_T+dDelta_T/2),-hbar*omega_D,hbar*omega_D)[0] / A \
+                         -quad(lambda E: integrand(E, Delta_T-dDelta_T/2),-hbar*omega_D,hbar*omega_D)[0] / A ) \
+                         / dDelta_T
+            Delta_T = max(0, Delta_T + (1 - integral) / derivative)
+            integral = quad(lambda E: integrand(E, Delta_T),-hbar*omega_D,hbar*omega_D)[0] / A
+            error = integral - 1
+        ii+=1
+    return Delta_T
+
+def get_Teff(nqp_total, T_actual, Tc, N0, exact_nth=False, exact_delta=False):
     '''
     Given a total amount of quatiparticles nqp_total, returns the temperature
     Teff that would be required to thermally generate nqp_total quasiparticles.
 
-    If exact==True, the function get_nqp_thermal_exact() is used to calculate
+    If exact_nth==True, the function get_nqp_thermal_exact() is used to calculate
     thermal quasiparticle density. Otherwise, the T<<Tc approximation
     get_nqp_thermal() is used.
     '''
-    if exact:
-        get_nth = get_nqp_thermal_exact
-    else:
-        get_nth = get_nqp_thermal
     Delta0 = 1.76*k_B*Tc
-    nth = get_nth(T_actual, Tc, N0)
+    nth = get_nth(T_actual,Tc,N0,exact_nth,exact_delta)
     error = np.abs((nth - nqp_total)/nqp_total)
     Teff = max(T_actual, Tc/10.0)
     converged = False
@@ -86,8 +122,8 @@ def get_Teff(nqp_total, T_actual, Tc, N0, exact=False):
             converged = True
         else:
             dTeff = Teff/50
-            derivative = (get_nth(Teff+dTeff/2,Tc,N0) \
-                        - get_nth(Teff-dTeff/2,Tc,N0)) \
+            derivative = (get_nth(Teff+dTeff/2,Tc,N0,exact_nth,exact_delta) \
+                        - get_nth(Teff-dTeff/2,Tc,N0,exact_nth,exact_delta)) \
                          / dTeff
             Teff = Teff + (nqp_total - nth) / derivative
             if Teff <= 0:
@@ -96,7 +132,7 @@ def get_Teff(nqp_total, T_actual, Tc, N0, exact=False):
             else:
                 last2.append(Teff)
                 last2 = last2[1:]
-            nth = get_nth(Teff,Tc,N0)
+            nth = get_nth(Teff,Tc,N0,exact_nth,exact_delta)
             error = np.abs((nth - nqp_total)/nqp_total)
         i+=1
     return Teff
@@ -104,43 +140,3 @@ def get_Teff(nqp_total, T_actual, Tc, N0, exact=False):
 def get_Gamma_r(nqp, tau_max, nstar):
     Gamma_r = nqp/tau_max * (1 + nqp/(2*nstar))
     return Gamma_r
-
-def trapz2(func, bounds, conv_cond=0.05, n=8, Int1=None):
-    '''
-    Recursively splits an integral into halves and decreases dx
-    until the integral converges.
-    This is needed to calculate sigma1n because scipy.integrate.quad was giving
-    erroneous answers dependent upon the upper integration bound.
-
-    INPUTS:
-        func: 1D function to be integrated
-        bounds: bounds of integration
-
-        conv_cond: convergence parameter, should be in range 0.02-0.1
-        n: Sets the initial number of points to sample, 2**n + 1.
-           Making this too high/low will slow down the function.
-        Int1: Lower-resolution integral to be compared against for convergence.
-              DON'T PROVIDE AN INPUT TO THIS VARIABLE
-
-    OUTPUTS:
-        The value of the integral
-    '''
-    if Int1 is None:
-        x1 = np.linspace(bounds[0],bounds[1],2**(n-1)+1)
-        y1 = func(x1)
-        i1 = [i for i in range(len(y1)) if not math.isinf(y1[i])]
-        Int1 = trapz(y1[i1], x1[i1])
-
-    x2 = np.linspace(bounds[0],bounds[1],2**n+1)
-    y2 = func(x2)
-    i2 = np.array([i for i in range(len(y2)) if not math.isinf(y2[i])])
-    imid = i2[np.argmin(np.abs(i2-len(x2)//2))]
-    Int2a = trapz(y2[i2[:imid+1]],x2[i2[:imid+1]])
-    Int2b = trapz(y2[i2[imid:]],x2[i2[imid:]])
-    Int2 = Int2a+Int2b
-
-    if np.abs((Int1-Int2)/Int1) < conv_cond:
-        return Int2
-    else:
-        return trapz2(func,(x2[0],x2[imid]),Int1=Int2a) \
-             + trapz2(func,(x2[imid],x2[-1]),Int1=Int2b)
