@@ -100,14 +100,11 @@ def get_Delta(T, Tc, omega_D=9.66e13):
         ii+=1
     return Delta_T
 
-def get_Teff(nqp_total, T_actual, Tc, N0, exact_nth=False, exact_delta=False):
+def get_Teff(nqp_total, T_actual, Tc, N0, exact_nth=False, exact_delta=False,
+            omega_D=9.66e13):
     '''
     Given a total amount of quatiparticles nqp_total, returns the temperature
     Teff that would be required to thermally generate nqp_total quasiparticles.
-
-    If exact_nth==True, the function get_nqp_thermal_exact() is used to calculate
-    thermal quasiparticle density. Otherwise, the T<<Tc approximation
-    get_nqp_thermal() is used.
     '''
     Delta0 = 1.76*k_B*Tc
     nth = get_nth(T_actual,Tc,N0,exact_nth,exact_delta)
